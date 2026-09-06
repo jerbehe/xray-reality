@@ -1,0 +1,39 @@
+services:
+  xray-reality:
+    build: .
+    image: xray-reality:v26.3.27
+    container_name: xray-reality
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    # 内核开启 BBR 时也可改用宿主机网络栈（性能更好）:
+    # network_mode: host
+    environment:
+      XRAY_PORT: "443"
+      XRAY_SNI: "www.amazon.com"
+      # XRAY_SHORT_ID: "88"
+      # XRAY_UUID: ""            # 不填自动生成
+      # XRAY_PRIVATE_KEY: ""     # 与公钥成对填写则跳过自动生成
+      # XRAY_PUBLIC_KEY: ""
+      # SERVER_IP: "1.2.3.4"     # 不填则启动时自动探测公网 IP
+      #
+      # 出口代理（可选）：设置后客户端流量经该代理出网，容器对外 IP 变为代理出口 IP
+      # 未设置时流量由本机直接出网。也可用标准变量 ALL_PROXY / HTTPS_PROXY / HTTP_PROXY
+      # OUTBOUND_PROXY: "socks5://192.168.2.2:20001"
+      # OUTBOUND_PROXY: "socks5://user:p%40ss@192.168.2.2:20001"   # 特殊字符按 URL 编码
+      # UDP_POLICY: "block-quic"       # block-quic(默认) | proxy | direct | block
+      # PROXY_BYPASS: "geosite:cn,geoip:cn"   # 绕过代理直连的目标，逗号分隔
+      # NO_PROXY_ENV: "1"              # 忽略 ALL_PROXY 等标准变量，只认 OUTBOUND_PROXY
+    # 代理跑在宿主机上（如 usque-admin 的实例端口）时，容器内需能访问宿主机：
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+    # 然后 OUTBOUND_PROXY 写 socks5://host.docker.internal:20001
+    #
+    # 多实例模式：把 instances.json 放进配置卷即可（格式见 README），
+    # 每个用户/线路可绑定不同出口代理；多端口建议改用 network_mode: host
+    volumes:
+      # 持久化身份信息：容器重建后 UUID/密钥不变
+      - xray-data:/usr/local/etc/xray
+
+volumes:
+  xray-data:
