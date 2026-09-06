@@ -1,0 +1,19 @@
+[
+  {
+    "name": "main",
+    "port": 443,
+    "users": [
+      { "name": "warp00", "proxy": "socks5://usque_admin:20000" },
+      { "name": "warp01", "proxy": "socks5://usque_admin:20001" },
+      { "name": "warp02", "proxy": "socks5://usque_admin:20002" },
+      { "name": "warp03", "proxy": "socks5://usque_admin:20003" },
+      { "name": "warp04", "proxy": "socks5://usque_admin:20004" },
+      { "name": "warp05", "proxy": "socks5://usque_admin:20005" },
+      { "name": "warp06", "proxy": "socks5://usque_admin:20006" },
+      { "name": "warp07", "proxy": "socks5://usque_admin:20007" },
+      { "name": "warp08", "proxy": "socks5://usque_admin:20008" },
+      { "name": "warp09", "proxy": "socks5://usque_admin:20009" },
+      { "name": "warp10", "proxy": "socks5://usque_admin:20010" }
+    ]
+  }
+]
