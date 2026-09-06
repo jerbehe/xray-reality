@@ -73,9 +73,15 @@ docker run -d --name xray-reality -p 443:443 \
 
 ## 多实例清单（一端口多用户 / 一端口一实例）
 
-把 `instances.json` 放进配置卷（或 `-e XRAY_INSTANCES=/path/instances.json`），容器即进入
-多实例模式：单个 xray 进程同时承载多个 REALITY 入站。`proxy` 支持继承——user 未指定时
-继承入站级 `proxy`；无 `users` 数组等价于单个匿名用户。
+容器按以下顺序查找 `instances.json`，找到即进入多实例模式（单个 xray 进程同时承载
+多个 REALITY 入站）：
+
+1. `-e XRAY_INSTANCES=/path/instances.json` 显式指定
+2. `/etc/xray-reality/instances.json`（系统默认路径，推荐把宿主机目录挂进来：
+   `-v /etc/xray-reality:/etc/xray-reality:ro`）
+3. 配置卷中的 `instances.json`（旧版兼容）
+
+`proxy` 支持继承——user 未指定时继承入站级 `proxy`；无 `users` 数组等价于单个匿名用户。
 
 ```json
 [

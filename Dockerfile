@@ -28,7 +28,7 @@ RUN set -eux; \
     curl -fsSL --retry 3 --connect-timeout 30 -o /tmp/xray.zip "$url"; \
     unzip -o /tmp/xray.zip -d /tmp/xray; \
     install -m 755 /tmp/xray/xray /usr/local/bin/xray; \
-    mkdir -p /usr/local/share/xray /usr/local/etc/xray; \
+    mkdir -p /usr/local/share/xray /usr/local/etc/xray /etc/xray-reality; \
     install -m 644 /tmp/xray/geoip.dat /tmp/xray/geosite.dat /usr/local/share/xray/; \
     /usr/local/bin/xray version; \
     rm -rf /tmp/xray /tmp/xray.zip

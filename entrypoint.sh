@@ -5,7 +5,8 @@
 # 3. 打印客户端连接信息，前台运行 xray
 #
 # 两种运行模式：
-# A. 多实例清单模式：配置卷存在 instances.json（或 XRAY_INSTANCES 指向清单文件）时启用，
+# A. 多实例清单模式：存在清单文件时启用，查找顺序 XRAY_INSTANCES >
+#    /etc/xray-reality/instances.json（系统默认路径）> 配置卷 instances.json，
 #    一个 xray 进程承载多个 REALITY 入站（多端口或多用户），每个用户可绑定不同出口代理。
 #    清单格式（proxy/address 支持继承：user 未指定时继承入站级字段）：
 #      [
@@ -31,7 +32,7 @@
 #
 # 共有环境变量：
 #   SERVER_IP         服务器公网 IP，不填则启动时自动探测（仅用于生成客户端链接）
-#   XRAY_INSTANCES    多实例清单路径（默认 CONF_DIR/instances.json）
+#   XRAY_INSTANCES    多实例清单路径（默认查找 /etc/xray-reality/instances.json）
 #   XRAY_BIN / XRAY_CONF_DIR  仅供本地调试覆盖，容器内无需设置
 #
 # 出口代理（单实例模式，或清单中各条线路未单独指定时也可用全局变量兜底）:
@@ -700,9 +701,16 @@ $ip"
 mkdir -p "$CONF_DIR"
 
 # ================= 模式分发 =================
-MANIFEST="${XRAY_INSTANCES:-}"
-if [ -z "$MANIFEST" ] && [ -f "$CONF_DIR/instances.json" ]; then
+# 清单查找顺序：XRAY_INSTANCES 显式指定 > /etc/xray-reality/instances.json（系统默认）
+#              > CONF_DIR/instances.json（旧版兼容）
+if [ -n "${XRAY_INSTANCES:-}" ]; then
+    MANIFEST="$XRAY_INSTANCES"
+elif [ -f /etc/xray-reality/instances.json ]; then
+    MANIFEST=/etc/xray-reality/instances.json
+elif [ -f "$CONF_DIR/instances.json" ]; then
     MANIFEST="$CONF_DIR/instances.json"
+else
+    MANIFEST=""
 fi
 
 if [ -n "$MANIFEST" ]; then
