@@ -2,6 +2,7 @@
 
 由 Xray VLESS + REALITY 一键安装脚本改造的服务镜像：构建时装好 Xray 二进制，
 首次启动时自动生成 UUID / X25519 密钥并写配置，前台运行 xray（PID 1）。
+附带订阅服务 `sub.sh`，可把全部节点整合成一个订阅地址供客户端订阅（见下）。
 
 ## 构建与运行
 
@@ -118,6 +119,77 @@ docker run -d --name xray-reality -p 443:443 \
 | `XRAY_INSTANCES` | `<配置卷>/instances.json` | 清单路径，文件存在即启用多实例模式 |
 | `XRAY_SELFTEST` | `1` | 设为 `0` 跳过启动时的 REALITY 握手自检 |
 
+## 订阅服务（把全部节点整合成一个订阅地址）
+
+除了逐个复制链接，镜像还带一个订阅服务 `sub.sh`：它读取配置卷里由 entrypoint 写出的
+`nodes.json`（含全部实例/用户的地址、端口、UUID、公钥、shortId），生成标准订阅内容并用
+HTTP 提供，客户端填一个地址即可自动更新全部节点。
+
+提供四种格式：
+
+| 路径 | 内容 | 适用 |
+|---|---|---|
+| `/sub.txt` | base64 编码的 vless 链接 | v2rayN / NekoBox / Shadowrocket / Clash Verge 等通用 |
+| `/plain.txt` | 明文链接，一行一条 | 手动复制、其它工具导入 |
+| `/clash.yaml` | `proxies:` 列表 | Clash / mihomo |
+| `/nodes.json` | 结构化节点信息 | 自建脚本 |
+
+### 方式一：独立容器（推荐）
+
+`docker-compose.yml` 里已包含 `xray-reality-sub` 服务，直接 `docker compose up -d` 即可；
+它只读挂载同一个配置卷，与 xray 容器互不影响，可单独重启、单独套反向代理。
+
+```bash
+docker compose up -d
+docker logs xray-reality-sub          # 打印订阅地址
+curl -s http://127.0.0.1:8080/sub.txt | base64 -d
+```
+
+不用 compose 时等价的 `docker run`：
+
+```bash
+docker run -d --name xray-reality-sub --restart unless-stopped \
+  -v xray-data:/usr/local/etc/xray:ro \
+  -p 127.0.0.1:8080:8080 \
+  xray-reality /sub.sh serve
+```
+
+### 方式二：随 xray 容器一起跑
+
+给 xray 容器加 `-e SUB_PORT=8080`，entrypoint 会在启动 xray 前后台拉起订阅服务
+（不设置 `SUB_PORT` 就完全不启动，行为与之前一致）：
+
+```bash
+docker run -d --name xray-reality -p 443:443 -p 127.0.0.1:8080:8080 \
+  -e SUB_PORT=8080 -v xray-data:/usr/local/etc/xray xray-reality
+```
+
+### 环境变量
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `SUB_PORT` | `8080` | 监听端口；在 xray 容器上设置该变量即启用内置订阅服务 |
+| `SUB_ADDR` | `0.0.0.0` | 监听地址（容器内网地址，不发布端口就不会暴露到公网） |
+| `SUB_TOKEN` | 空 | 设置后订阅地址变为 `/<token>/sub.txt`，**强烈建议设置** |
+| `SUB_REFRESH` | `60` | 每隔多少秒按最新 `nodes.json` 重新生成；`0` = 只在启动时生成一次 |
+| `SUB_BASE_URL` | 空 | 对外访问前缀如 `https://sub.example.com`，仅影响日志里打印的地址 |
+| `SUB_DIR` | `/var/lib/xray-sub` | 订阅文件输出目录 |
+
+### 安全提示
+
+- **订阅内容等于节点凭据**（含 UUID 与 REALITY 公钥），拿到订阅地址就能连你的节点。
+  请设置 `SUB_TOKEN`，并优先只监听 `127.0.0.1`、由 nginx / Caddy 套一层 HTTPS 再对外：
+
+  ```nginx
+  location /sub/ {
+      proxy_pass http://127.0.0.1:8080/;   # 末尾的 / 会去掉 /sub/ 前缀
+  }
+  ```
+
+  此时把 `SUB_BASE_URL` 设为对外地址，日志里打印的就是可直接复制的公网地址。
+- 服务端已用 `--no-listing` 禁止列目录，根目录不会泄露令牌子目录的名字。
+- 订阅服务本身不发任何外网请求，只读取配置卷里的 `nodes.json`。
+
 ## 获取节点链接
 
 容器每次启动都会把 vless 链接打印到日志；也可以用仓库里的辅助脚本随时生成：
@@ -143,6 +215,8 @@ vless://<UUID>@<公网IP>:<端口>?encryption=none&flow=xtls-rprx-vision
 把 `/usr/local/etc/xray` 挂载为卷即可。单实例模式生成 `meta.env`（身份参数）、
 `config.json`（服务端配置）、`client.json`（客户端参数）；多实例模式生成
 `instances.resolved.json`（含密钥/UUID 的最终清单）与 `meta/<实例名>.env`。
+两种模式都会额外生成 `nodes.json`（全部节点的地址/端口/UUID/公钥/shortId/链接），
+订阅服务 `sub.sh` 读它生成订阅，自建脚本也可用它取节点信息。
 容器重建后复用同一身份；想重新生成：删除对应文件或清空该卷。
 
 ## 镜像涉及的网络请求

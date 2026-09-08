@@ -10,7 +10,8 @@ LABEL org.opencontainers.image.title="xray-reality" \
       org.opencontainers.image.description="Xray VLESS+REALITY server, converted from reality.sh" \
       org.opencontainers.image.version="${XRAY_VERSION}"
 
-RUN apk add --no-cache ca-certificates curl jq unzip
+# darkhttpd：订阅服务（sub.sh）用的极简静态 HTTP 服务器
+RUN apk add --no-cache ca-certificates curl jq unzip darkhttpd
 
 # 下载并安装 Xray 二进制和 geo 资源文件
 RUN set -eux; \
@@ -34,7 +35,8 @@ RUN set -eux; \
     rm -rf /tmp/xray /tmp/xray.zip
 
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod 755 /entrypoint.sh
+COPY sub.sh /sub.sh
+RUN chmod 755 /entrypoint.sh /sub.sh
 
 ENV XRAY_LOCATION=/usr/local/etc/xray \
     XRAY_LOCATION_ASSET=/usr/local/share/xray

@@ -55,6 +55,7 @@ META="$CONF_DIR/meta.env"
 CLIENT="$CONF_DIR/client.json"
 META_DIR="$CONF_DIR/meta"
 RESOLVED="$CONF_DIR/instances.resolved.json"
+NODES="$CONF_DIR/nodes.json"
 
 PORT="${XRAY_PORT:-443}"
 SNI="${XRAY_SNI:-www.amazon.com}"
@@ -575,6 +576,61 @@ JQEOF
     rm -f /tmp/render.jq
 }
 
+# 写出统一节点清单 nodes.json：地址/端口/UUID/公钥/shortId/链接一应俱全，
+# 供订阅服务（sub.sh）与自建脚本消费；两种运行模式输出同一份结构。
+emit_nodes_json_multi() {
+    jq --arg ip "${SERVER_IP:-}" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+        def frag: gsub("[^a-zA-Z0-9_-]"; "_");
+        {
+            generated: $now,
+            nodes: [ .[] | . as $ib | $ib.users[] |
+                (if (.address // "") != "" then .address else $ip end) as $a |
+                ($ib.tag + "-" + (.name | frag)) as $nm |
+                {
+                    name: $nm, instance: $ib.name, user: .name,
+                    address: $a, port: $ib.port, uuid: .uuid,
+                    flow: "xtls-rprx-vision", sni: $ib.sni,
+                    public_key: $ib.public_key, short_id: $ib.short_id,
+                    udp_policy: $ib.udp_policy, proxy_url: .proxy_url,
+                    link: ("vless://" + .uuid + "@" + $a + ":" + ($ib.port | tostring) +
+                        "?encryption=none&flow=xtls-rprx-vision&security=reality&sni=" + $ib.sni +
+                        "&fp=chrome&pbk=" + $ib.public_key + "&sid=" + $ib.short_id +
+                        "&type=tcp&headerType=none#" + $nm)
+                } ]
+        }' "$RESOLVED" > "$NODES"
+    chmod 600 "$NODES"
+}
+
+emit_nodes_json_single() {
+    jq -n \
+        --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg ip "$SERVER_IP" \
+        --argjson port "$PORT" --arg uuid "$UUID" --arg sni "$SNI" \
+        --arg pub "$PUBLIC_KEY" --arg sid "$SHORT_ID" --arg policy "$UDP_POLICY" \
+        --arg proxy "${PROXY_URL:-}" --arg link "$LINK" \
+        '{
+            generated: $now,
+            nodes: [ {
+                name: "xray-reality", instance: "xray-reality", user: "",
+                address: $ip, port: $port, uuid: $uuid,
+                flow: "xtls-rprx-vision", sni: $sni,
+                public_key: $pub, short_id: $sid,
+                udp_policy: $policy, proxy_url: $proxy, link: $link
+            } ]
+        }' > "$NODES"
+    chmod 600 "$NODES"
+}
+
+# 可选：设置 SUB_PORT 时在 xray 容器内一并拉起订阅服务（不设置则完全不启动）
+maybe_start_sub() {
+    [ -n "${SUB_PORT:-}" ] || return 0
+    if [ ! -x /sub.sh ]; then
+        echo "[entrypoint] 警告: 已设置 SUB_PORT 但 /sub.sh 不存在，跳过订阅服务" >&2
+        return 0
+    fi
+    /sub.sh serve &
+    echo "[entrypoint] 订阅服务已在容器内后台启动（端口 ${SUB_PORT}）"
+}
+
 # REALITY 握手自检：在回环地址上起一对临时 xray 客户端/服务端，验证该实例的
 # SNI + 密钥 + shortId 能完成真实握手（部分站点如 www.microsoft.com 不能用作伪装目标，
 # 失败时客户端表现为静默超时，必须提前发现）。成功返回 0。
@@ -678,6 +734,8 @@ manifest_print_and_check() {
         idx=$((idx + 1))
     done
     echo "[entrypoint] 配置目录 : $CONF_DIR（instances.resolved.json / config.json / meta/）"
+    emit_nodes_json_multi
+    echo "[entrypoint] 节点清单 : $NODES（订阅服务 sub.sh 的数据源）"
 }
 
 # 按 URL 探测出口 IP（带进程内缓存，多个用户共用同一代理时只探测一次）
@@ -727,6 +785,7 @@ if [ -n "$MANIFEST" ]; then
         exit 1
     fi
     manifest_print_and_check
+    maybe_start_sub
     exec "$XRAY_BIN" run -config "$CONF"
 fi
 
@@ -885,6 +944,8 @@ echo "[entrypoint] 公钥     : $PUBLIC_KEY"
 echo "[entrypoint] 客户端链接:"
 echo "$LINK"
 echo "[entrypoint] 配置目录 : $CONF_DIR（meta.env/config.json/client.json）"
+emit_nodes_json_single
+echo "[entrypoint] 节点清单 : $NODES（订阅服务 sub.sh 的数据源）"
 
 # 出口代理自检：打印代理连通性与出口 IP（失败只告警，不阻止启动）
 if [ -n "$PROXY_URL" ]; then
@@ -899,6 +960,8 @@ if [ -n "$PROXY_URL" ]; then
 else
     echo "[entrypoint] 出口代理 : 未设置（流量由本机直接出网）"
 fi
+
+maybe_start_sub
 
 # 前台运行，作为容器主进程
 exec "$XRAY_BIN" run -config "$CONF"
