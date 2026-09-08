@@ -36,15 +36,17 @@ RUN set -eux; \
 
 COPY entrypoint.sh /entrypoint.sh
 COPY sub.sh /sub.sh
-RUN chmod 755 /entrypoint.sh /sub.sh
+COPY healthcheck.sh /healthcheck.sh
+RUN chmod 755 /entrypoint.sh /sub.sh /healthcheck.sh
 
 ENV XRAY_LOCATION=/usr/local/etc/xray \
     XRAY_LOCATION_ASSET=/usr/local/share/xray
 
 EXPOSE 443
 
-# entrypoint 用 exec 启动 xray，PID 1 即 xray 进程
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD grep -qx xray /proc/1/comm || exit 1
+# entrypoint 用 exec 启动 xray，PID 1 即 xray 进程；
+# 订阅服务与 xray 同容器，开启时健康检查一并检查它的 HTTP 端口
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD /healthcheck.sh
 
 ENTRYPOINT ["/entrypoint.sh"]

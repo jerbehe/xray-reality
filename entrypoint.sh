@@ -33,6 +33,9 @@
 # 共有环境变量：
 #   SERVER_IP         服务器公网 IP，不填则启动时自动探测（仅用于生成客户端链接）
 #   XRAY_INSTANCES    多实例清单路径（默认查找 /etc/xray-reality/instances.json）
+#   SUB_PORT          容器内订阅服务端口，默认 8080；设为 0 关闭订阅服务
+#   SUB_TOKEN         订阅路径令牌，设置后订阅地址变为 /<token>/sub.txt
+#   SUB_REFRESH       订阅重新生成间隔（秒），默认 60，0 = 只生成一次
 #   XRAY_BIN / XRAY_CONF_DIR  仅供本地调试覆盖，容器内无需设置
 #
 # 出口代理（单实例模式，或清单中各条线路未单独指定时也可用全局变量兜底）:
@@ -620,15 +623,25 @@ emit_nodes_json_single() {
     chmod 600 "$NODES"
 }
 
-# 可选：设置 SUB_PORT 时在 xray 容器内一并拉起订阅服务（不设置则完全不启动）
+# 订阅服务：默认与 xray 在同一个容器内运行（SUB_PORT=0 关闭）
 maybe_start_sub() {
-    [ -n "${SUB_PORT:-}" ] || return 0
+    case "${SUB_PORT:-8080}" in
+        0) return 0 ;;
+        ''|*[!0-9]*) echo "[entrypoint] 警告: SUB_PORT 不是合法端口，跳过订阅服务" >&2
+                     return 0 ;;
+    esac
     if [ ! -x /sub.sh ]; then
-        echo "[entrypoint] 警告: 已设置 SUB_PORT 但 /sub.sh 不存在，跳过订阅服务" >&2
+        echo "[entrypoint] 警告: /sub.sh 不存在，跳过订阅服务" >&2
         return 0
     fi
-    /sub.sh serve &
-    echo "[entrypoint] 订阅服务已在容器内后台启动（端口 ${SUB_PORT}）"
+    # sub.sh serve 内部会 exec 到 darkhttpd；万一异常退出，下面的循环负责重新拉起
+    (
+        while :; do
+            /sub.sh serve
+            echo "[entrypoint] 警告: 订阅服务已退出，5 秒后重启" >&2
+            sleep 5
+        done
+    ) &
 }
 
 # REALITY 握手自检：在回环地址上起一对临时 xray 客户端/服务端，验证该实例的

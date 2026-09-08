@@ -134,46 +134,41 @@ HTTP 提供，客户端填一个地址即可自动更新全部节点。
 | `/clash.yaml` | `proxies:` 列表 | Clash / mihomo |
 | `/nodes.json` | 结构化节点信息 | 自建脚本 |
 
-### 方式一：独立容器（推荐）
+### 用法
 
-`docker-compose.yml` 里已包含 `xray-reality-sub` 服务，直接 `docker compose up -d` 即可；
-它只读挂载同一个配置卷，与 xray 容器互不影响，可单独重启、单独套反向代理。
+订阅服务**与 xray 在同一个容器内运行**，默认就是开启的：entrypoint 在启动 xray 前后台
+拉起它，节点清单更新后由它自动重新生成。只要把容器端口发布出来就能用：
 
 ```bash
-docker compose up -d
-docker logs xray-reality-sub          # 打印订阅地址
+docker run -d --name xray-reality --restart unless-stopped \
+  -p 443:443 -p 127.0.0.1:8080:8080 \
+  -v xray-data:/usr/local/etc/xray \
+  xray-reality
+
+docker logs xray-reality              # 启动日志里打印订阅地址
 curl -s http://127.0.0.1:8080/sub.txt | base64 -d
 ```
 
-不用 compose 时等价的 `docker run`：
+用 `docker compose up -d` 时，compose 文件里已经把 `127.0.0.1:8080` 发布出来了，
+`docker compose logs xray-reality` 即可看到订阅地址。
 
-```bash
-docker run -d --name xray-reality-sub --restart unless-stopped \
-  -v xray-data:/usr/local/etc/xray:ro \
-  -p 127.0.0.1:8080:8080 \
-  xray-reality /sub.sh serve
-```
-
-### 方式二：随 xray 容器一起跑
-
-给 xray 容器加 `-e SUB_PORT=8080`，entrypoint 会在启动 xray 前后台拉起订阅服务
-（不设置 `SUB_PORT` 就完全不启动，行为与之前一致）：
-
-```bash
-docker run -d --name xray-reality -p 443:443 -p 127.0.0.1:8080:8080 \
-  -e SUB_PORT=8080 -v xray-data:/usr/local/etc/xray xray-reality
-```
+不需要订阅服务就设 `SUB_PORT=0`（完全不启动，行为与加订阅之前一致）；
+容器健康检查在订阅服务开启时会一并检查它的 HTTP 端口。
 
 ### 环境变量
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `SUB_PORT` | `8080` | 监听端口；在 xray 容器上设置该变量即启用内置订阅服务 |
+| `SUB_PORT` | `8080` | 订阅服务监听端口；设为 `0` 关闭订阅服务 |
 | `SUB_ADDR` | `0.0.0.0` | 监听地址（容器内网地址，不发布端口就不会暴露到公网） |
 | `SUB_TOKEN` | 空 | 设置后订阅地址变为 `/<token>/sub.txt`，**强烈建议设置** |
 | `SUB_REFRESH` | `60` | 每隔多少秒按最新 `nodes.json` 重新生成；`0` = 只在启动时生成一次 |
 | `SUB_BASE_URL` | 空 | 对外访问前缀如 `https://sub.example.com`，仅影响日志里打印的地址 |
 | `SUB_DIR` | `/var/lib/xray-sub` | 订阅文件输出目录 |
+
+> 如果想把订阅单独放到另一个容器（只读挂载同一配置卷），也可以
+> `docker run -v xray-data:/usr/local/etc/xray:ro -p 127.0.0.1:8080:8080 xray-reality /sub.sh serve`；
+> 但默认用法是同容器，无需额外容器。
 
 ### 安全提示
 

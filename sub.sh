@@ -181,6 +181,9 @@ print_urls() {
 
 serve() {
     local waited=0
+    case "$SUB_PORT" in
+        ''|*[!0-9]*) die "SUB_PORT 必须是端口号（默认 8080，0 = 关闭订阅服务）" ;;
+    esac
     command -v darkhttpd >/dev/null 2>&1 || die "缺少 darkhttpd，请使用本仓库镜像"
     mkdir -p "$SUB_DIR"
     # 独立容器先于 xray 启动时，节点清单可能还没生成

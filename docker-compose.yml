@@ -6,6 +6,8 @@ services:
     restart: unless-stopped
     ports:
       - "443:443"
+      # 订阅服务（与 xray 同一容器），仅发布到本机；不需要就删掉这一行
+      - "127.0.0.1:8080:8080"
     # 内核开启 BBR 时也可改用宿主机网络栈（性能更好）:
     # network_mode: host
     environment:
@@ -24,6 +26,12 @@ services:
       # UDP_POLICY: "block-quic"       # block-quic(默认) | proxy | direct | block
       # PROXY_BYPASS: "geosite:cn,geoip:cn"   # 绕过代理直连的目标，逗号分隔
       # NO_PROXY_ENV: "1"              # 忽略 ALL_PROXY 等标准变量，只认 OUTBOUND_PROXY
+      #
+      # 订阅服务（与 xray 在同一容器内，默认开启；设为 0 关闭）
+      # SUB_PORT: "8080"
+      # SUB_TOKEN: "换成一串随机字符串"           # 设置后订阅地址变为 /<token>/sub.txt
+      # SUB_REFRESH: "60"                       # 订阅重新生成间隔（秒），0 = 只生成一次
+      # SUB_BASE_URL: "https://sub.example.com"  # 仅影响日志里打印出来的地址
     # 代理跑在宿主机上（如 usque-admin 的实例端口）时，容器内需能访问宿主机：
     # extra_hosts:
     #   - "host.docker.internal:host-gateway"
@@ -34,34 +42,6 @@ services:
     volumes:
       # 持久化身份信息：容器重建后 UUID/密钥不变
       - xray-data:/usr/local/etc/xray
-
-  # 订阅服务：把上面容器里的全部节点整合成一个订阅地址，供客户端直接订阅
-  # 默认只发布到 127.0.0.1，公网使用请在前面套一层 HTTPS 反代（见 README “订阅服务”）
-  xray-reality-sub:
-    build: .
-    image: xray-reality:v26.3.27
-    container_name: xray-reality-sub
-    restart: unless-stopped
-    depends_on:
-      - xray-reality
-    command: ["/sub.sh", "serve"]
-    environment:
-      SUB_PORT: "8080"
-      SUB_ADDR: "0.0.0.0"
-      SUB_REFRESH: "60"          # 每隔多少秒重新生成一次；0 = 只在启动时生成
-      # SUB_TOKEN: "换成一串随机字符串"        # 设置后订阅地址变为 /<token>/sub.txt
-      # SUB_BASE_URL: "https://sub.example.com"  # 仅影响日志里打印出来的地址
-    ports:
-      - "127.0.0.1:8080:8080"
-    volumes:
-      # 只读挂载同一配置卷，读取 xray 容器写出的 nodes.json
-      - xray-data:/usr/local/etc/xray:ro
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
-      interval: 30s
-      timeout: 5s
-      start-period: 10s
-      retries: 3
 
 volumes:
   xray-data:

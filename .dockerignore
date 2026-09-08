@@ -2,3 +2,4 @@
 !Dockerfile
 !entrypoint.sh
 !sub.sh
+!healthcheck.sh
