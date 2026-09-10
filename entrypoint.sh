@@ -583,12 +583,11 @@ JQEOF
 # 供订阅服务（sub.sh）与自建脚本消费；两种运行模式输出同一份结构。
 emit_nodes_json_multi() {
     jq --arg ip "${SERVER_IP:-}" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
-        def frag: gsub("[^a-zA-Z0-9_-]"; "_");
         {
             generated: $now,
             nodes: [ .[] | . as $ib | $ib.users[] |
                 (if (.address // "") != "" then .address else $ip end) as $a |
-                ($ib.tag + "-" + (.name | frag)) as $nm |
+                ($ib.tag + "-" + .name) as $nm |
                 {
                     name: $nm, instance: $ib.name, user: .name,
                     address: $a, port: $ib.port, uuid: .uuid,
@@ -598,7 +597,7 @@ emit_nodes_json_multi() {
                     link: ("vless://" + .uuid + "@" + $a + ":" + ($ib.port | tostring) +
                         "?encryption=none&flow=xtls-rprx-vision&security=reality&sni=" + $ib.sni +
                         "&fp=chrome&pbk=" + $ib.public_key + "&sid=" + $ib.short_id +
-                        "&type=tcp&headerType=none#" + $nm)
+                        "&type=tcp&headerType=none#" + ($nm | @uri))
                 } ]
         }' "$RESOLVED" > "$NODES"
     chmod 600 "$NODES"
@@ -740,8 +739,9 @@ manifest_print_and_check() {
             fi
             [ -n "$uaddr" ] || uaddr="$SERVER_IP"
             printf '[entrypoint]   '
-            printf 'vless://%s@%s:%s?encryption=none&flow=xtls-rprx-vision&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&type=tcp&headerType=none#%s-%s\n' \
-                "$uuuid" "$uaddr" "$port" "$sni" "$pub" "$short" "$tag" "$(printf '%s' "$uname" | tr -c 'a-zA-Z0-9_-' '_')"
+            printf 'vless://%s@%s:%s?encryption=none&flow=xtls-rprx-vision&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&type=tcp&headerType=none#%s\n' \
+                "$uuuid" "$uaddr" "$port" "$sni" "$pub" "$short" \
+                "$(jq -rn --arg s "$tag-$uname" '$s | @uri')"
             j=$((j + 1))
         done
         idx=$((idx + 1))

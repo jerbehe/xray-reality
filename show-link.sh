@@ -22,7 +22,7 @@ if docker exec "$CONTAINER" test -f /usr/local/etc/xray/instances.resolved.json 
         jq -r --arg ip "$SERVER_IP" '\''
             .[] | . as $ib | $ib.users[]
             | (if (.address // "") != "" then .address else $ip end) as $a
-            | "vless://\(.uuid)@\($a):\($ib.port)?encryption=none&flow=xtls-rprx-vision&security=reality&sni=\($ib.sni)&fp=chrome&pbk=\($ib.public_key)&sid=\($ib.short_id)&type=tcp&headerType=none#\($ib.tag)-\(.name)"
+            | "vless://\(.uuid)@\($a):\($ib.port)?encryption=none&flow=xtls-rprx-vision&security=reality&sni=\($ib.sni)&fp=chrome&pbk=\($ib.public_key)&sid=\($ib.short_id)&type=tcp&headerType=none#\(($ib.tag + "-" + .name) | @uri)"
         '\'' /usr/local/etc/xray/instances.resolved.json
     '
     exit 0
