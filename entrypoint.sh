@@ -131,6 +131,12 @@ sanitize_tag() {
     printf '%s' "$1" | tr -c 'a-zA-Z0-9_-' '_' | sed -e 's/_*$//' -e 's/^_*//' -e 's/^$/unnamed/'
 }
 
+# 持久化 UUID 的键：取用户名摘要，避免非 ASCII 名（如「直连」「家宽」）
+# 被清洗成同一串下划线而撞键
+user_key() {
+    printf '%s' "$1" | md5sum | cut -c1-16
+}
+
 # 从 xray x25519 输出解析私钥/公钥（兼容新版 PrivateKey/Password 与旧版 Private key/Public key）
 parse_keyout() {
     KEY_PRIVATE=$(printf '%s\n' "$1" | grep -iE 'private' | head -n1 | sed 's/^[^:]*: *//')
@@ -380,7 +386,8 @@ manifest_url_list() {
 manifest_resolve() {
     mkdir -p "$META_DIR"
     printf '[]' > "$RESOLVED.tmp"
-    local count idx name tag metafile mpriv short policy ucount j uname ukey uuuid uproxy uaddr email users_json entry
+    local count idx name tag metafile mpriv short policy ucount j uname ukey uuuid uproxy uaddr email users_json entry used_uuids
+    used_uuids=""
     count=$(jq 'length' "$MANIFEST")
     idx=0
     while [ "$idx" -lt "$count" ]; do
@@ -422,6 +429,7 @@ manifest_resolve() {
         ucount=$(jq -r ".[$idx].users // [] | length" "$MANIFEST")
         [ "$ucount" -gt 0 ] || ucount=1
         users_json="[]"
+        used_uuids=""
         j=0
         while [ "$j" -lt "$ucount" ]; do
             uname=$(jq -r ".[$idx].users[$j].name // \"\"" "$MANIFEST")
@@ -433,13 +441,26 @@ manifest_resolve() {
             fi
             uuuid=$(jq -r ".[$idx].users[$j].uuid // \"\"" "$MANIFEST")
             if [ -z "$uuuid" ] && [ -f "$metafile" ]; then
-                ukey="U_$(printf '%s' "$uname" | tr -c 'a-zA-Z0-9_' '_')"
+                ukey="U_$(user_key "$uname")"
                 # shellcheck disable=SC1090
                 uuuid=$(eval "printf '%s' \"\${$ukey:-}\"")
+                if [ -z "$uuuid" ]; then
+                    # 兼容旧版本：老版本按“清洗后的用户名”做键，中文名会撞键
+                    ukey="U_$(printf '%s' "$uname" | tr -c 'a-zA-Z0-9_' '_')"
+                    # shellcheck disable=SC1090
+                    uuuid=$(eval "printf '%s' \"\${$ukey:-}\"")
+                fi
             fi
             if [ -z "$uuuid" ]; then
                 uuuid=$("$XRAY_BIN" uuid)
             fi
+            # 同一实例内 UUID 必须唯一：撞 UUID 时 xray 只会命中靠前的用户，
+            # 后者会被前者的分流规则吞掉（表现为“链式代理不生效”）
+            if [ -n "$used_uuids" ] && printf '%s\n' "$used_uuids" | grep -qx "$uuuid"; then
+                echo "[entrypoint] 警告: 实例 $name 用户 $uname 的 UUID 与同实例其他用户重复，已重新生成（该节点需重新导入链接/订阅）"
+                uuuid=$("$XRAY_BIN" uuid)
+            fi
+            used_uuids=$(printf '%s\n%s' "$used_uuids" "$uuuid")
             valid_uuid "$uuuid" || die "实例 $name 用户 $uname 的 UUID 非法"
             uproxy=$(jq -r ".[$idx].users[$j].proxy // .[$idx].proxy // \"\"" "$MANIFEST")
             # 连接地址：用户级 > 入站级 > SERVER_IP > 自动探测（空值 = 后两者兜底）
@@ -481,7 +502,7 @@ EOF
 $entry
 EOF
 )
-                printf 'U_%s=%s\n' "$(printf '%s' "$uname" | tr -c 'a-zA-Z0-9_' '_')" "$uuuid"
+                printf 'U_%s=%s\n' "$(user_key "$uname")" "$uuuid"
                 j=$((j + 1))
             done
         } > "$metafile"
